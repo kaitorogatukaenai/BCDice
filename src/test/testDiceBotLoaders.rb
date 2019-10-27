@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 
 dodontof_root = File.expand_path('..', File.dirname(__FILE__))
-unless $LOAD_PATH.include?(dodontof_root)
-  $LOAD_PATH.unshift(dodontof_root)
+unless $:.include?(dodontof_root)
+  $:.unshift(dodontof_root)
 end
 
-require 'test/setup'
 require 'test/unit'
 require 'bcdiceCore'
 require 'diceBot/DiceBotLoader'
@@ -754,6 +753,10 @@ class TestDiceBotLoaders < Test::Unit::TestCase
 
   def test_SRS
     assertDiceBotWithoutLoader('SRS')
+  end
+
+  def test_ScreamHighSchool
+    assertDiceBotWithoutLoader('ScreamHighSchool')
   end
 
   def test_SevenFortressMobius

@@ -51,6 +51,7 @@ $plotPrintChannels = {}
 $point_counter = {}
 
 require 'CardTrader'
+require 'TableFileData'
 require 'diceBot/DiceBot'
 require 'diceBot/DiceBotLoader'
 require 'diceBot/DiceBotLoaderList'
@@ -65,6 +66,7 @@ class BCDiceMaker
     @cardTrader.initValues
 
     @counterInfos = {}
+    @tableFileData = TableFileData.new
 
     @master = ""
     @quitFunction = nil
@@ -76,7 +78,7 @@ class BCDiceMaker
   attr_accessor :diceBotPath
 
   def newBcDice
-    bcdice = BCDice.new(self, @cardTrader, @diceBot, @counterInfos, nil)
+    bcdice = BCDice.new(self, @cardTrader, @diceBot, @counterInfos, @tableFileData)
 
     return bcdice
   end
@@ -86,9 +88,12 @@ class BCDice
   # 設定コマンドのパターン
   SET_COMMAND_PATTERN = /\Aset\s+(.+)/i.freeze
 
-  VERSION = "2.03.04".freeze
+  VERSION = "2.05.00".freeze
 
   attr_reader :cardTrader
+  attr_reader :rand_results, :detailed_rand_results
+
+  alias getRandResults rand_results
 
   def initialize(parent, cardTrader, diceBot, counterInfos, tableFileData)
     @parent = parent
@@ -105,13 +110,15 @@ class BCDice
     @isMessagePrinted = false
     @rands = nil
     @isKeepSecretDice = true
-    @randResults = nil
     @isIrcMode = true
+
+    @collect_rand_results = false
+    @rand_results = []
+    @detailed_rand_results = []
   end
 
-  # Unused method
-  def setDir(_dir, _prefix)
-    nil
+  def setDir(dir, prefix)
+    @tableFileData.setDir(dir, prefix)
   end
 
   def isKeepSecretDice(b)
@@ -119,7 +126,7 @@ class BCDice
   end
 
   def getGameType
-    @diceBot.gameType
+    @diceBot.id
   end
 
   def setDiceBot(diceBot)
@@ -506,7 +513,7 @@ class BCDice
   def checkMode()
     return unless isMaster()
 
-    output = "GameType = " + @diceBot.gameType + ", ViewMode = " + @diceBot.sendMode + ", Sort = " + @diceBot.sortType
+    output = "GameType = " + @diceBot.id + ", ViewMode = " + @diceBot.sendMode + ", Sort = " + @diceBot.sortType
     sendMessageToOnlySender(output)
   end
 
@@ -526,7 +533,7 @@ class BCDice
 
     sleepForIrc 2
 
-    @diceBot.getHelpMessage.lines.each_slice(5) do |lines|
+    @diceBot.help_message.lines.each_slice(5) do |lines|
       lines.each(&send_to_sender)
       sleepForIrc 1
     end
@@ -584,9 +591,6 @@ class BCDice
     debug("recievePublicMessageCatched @message", @message)
 
     @nick_e = nick_e
-
-    mynick = '' # self.nick
-    secret = false
 
     # プロットやシークレットダイス用に今のチャンネル名を記憶
     setChannelForPlotOrSecretDice
@@ -850,9 +854,30 @@ class BCDice
     return output, secret
   end
 
-  # Unused method.
-  def getTableDataResult(_arg)
-    nil
+  def getTableDataResult(arg)
+    debug("getTableDataResult Begin")
+
+    dice, title, table, secret = @tableFileData.getTableData(arg, @diceBot.id)
+    debug("dice", dice)
+
+    if table.nil?
+      debug("table is null")
+      return nil
+    end
+
+    value, diceText = getTableIndexDiceValueAndDiceText(dice)
+    return nil if value.nil?
+
+    debug("value", value)
+
+    key, message = table.find { |i| i.first === value }
+    return nil if message.nil?
+
+    message = rollTableMessageDiceText(message)
+
+    output = "#{nick_e}:#{title}(#{value}[#{diceText}]) ＞ #{message}"
+
+    return output, secret
   end
 
   def getTableIndexDiceValueAndDiceText(dice)
@@ -863,7 +888,7 @@ class BCDice
       return value, diceText
     end
 
-    string, secret, count, swapMarker = getD66Infos(dice)
+    string, _secret, _count, swapMarker = getD66Infos(dice)
     unless  string.nil?
       value = getD66ValueByMarker(swapMarker)
       diceText = (value / 10).to_s + "," + (value % 10).to_s
@@ -929,13 +954,11 @@ class BCDice
       round = 0
 
       loop do
-        if round >= 1
-          # 振り足し時のダイス読み替え処理用（ダブルクロスはクリティカルでダイス10に読み替える)
-          dice_now += @diceBot.getJackUpValueOnAddRoll(dice_n)
+        if d9_on
+          dice_n = roll_d9()
+        else
+          dice_n = rand(dice_max).to_i + 1
         end
-
-        dice_n = rand(dice_max).to_i + 1
-        dice_n -= 1 if d9_on
 
         dice_now += dice_n
 
@@ -984,7 +1007,9 @@ class BCDice
     @rands = rands
   end
 
-  def rand(max)
+  # @params [Integer] max
+  # @return [Integer] 0以上max未満の整数
+  def rand_inner(max)
     debug('rand called @rands', @rands)
 
     value = 0
@@ -994,23 +1019,63 @@ class BCDice
       value = randFromRands(max)
     end
 
-    unless @randResults.nil?
-      @randResults << [(value + 1), max]
+    if @collect_rand_results
+      @rand_results << [(value + 1), max]
     end
 
     return value
   end
 
-  def setCollectRandResult(b)
-    if b
-      @randResults = []
-    else
-      @randResults = nil
-    end
+  DetailedRandResult = Struct.new(:kind, :sides, :value)
+
+  # @params [Integer] max
+  # @return [Integer] 0以上max未満の整数
+  def rand(max)
+    ret = rand_inner(max)
+
+    push_to_detail(:normal, max, ret + 1)
+    return ret
   end
 
-  def getRandResults
-    @randResults
+  # 十の位をd10を使って決定するためのダイスロール
+  # @return [Integer] 0以上90以下で10の倍数となる整数
+  def roll_tens_d10()
+    # rand_innerの戻り値を10倍すればすむ話なのだが、既存のテストとの互換性の為に処理をする
+    r = rand_inner(10) + 1
+    if r == 10
+      r = 0
+    end
+
+    ret = r * 10
+
+    push_to_detail(:tens_d10, 10, ret)
+    return ret
+  end
+
+  # d10を0~9として扱うダイスロール
+  # @return [Integer] 0以上9以下の整数
+  def roll_d9()
+    ret = rand_inner(10)
+
+    push_to_detail(:d9, 10, ret)
+    return ret
+  end
+
+  # @param b [Boolean]
+  def setCollectRandResult(b)
+    @collect_rand_results = b
+    @rand_results = []
+    @detailed_rand_results = []
+  end
+
+  # @params [Symbol] kind
+  # @params [Integer] sides
+  # @params [Integer] value
+  def push_to_detail(kind, sides, value)
+    if @collect_rand_results
+      detail = DetailedRandResult.new(kind, sides, value)
+      @detailed_rand_results.push(detail)
+    end
   end
 
   def randNomal(max)
@@ -1048,7 +1113,6 @@ class BCDice
 
   ####################         バラバラダイス       ########################
   def bdice(string) # 個数判定型ダイスロール
-    total_n = 0
     suc = 0
     signOfInequality = ""
     diff = 0
@@ -1096,11 +1160,6 @@ class BCDice
     output = "#{@nick_e}: (#{string}) ＞ #{output}"
 
     return output
-  end
-
-  def isReRollAgain(dice_cnt, round)
-    debug("isReRollAgain dice_cnt, round", dice_cnt, round)
-    ((dice_cnt > 0) && ((round < @diceBot.rerollLimitCount) || (@diceBot.rerollLimitCount == 0)))
   end
 
   ####################             D66ダイス        ########################
@@ -1240,7 +1299,6 @@ class BCDice
   end
 
   def addToSecretDiceResult(diceResult, channel, mode)
-    nick = getNick()
     channel = channel.upcase
 
     # まずはチャンネルごとの管理リストに追加
@@ -1387,81 +1445,6 @@ class BCDice
     return suc
   end
 
-  ####################       ゲーム別成功度判定      ########################
-  def check_suc(*check_param)
-    total_n, dice_n, signOfInequality, diff, dice_cnt, dice_max, n1, n_max = *check_param
-
-    debug('check params : total_n, dice_n, signOfInequality, diff, dice_cnt, dice_max, n1, n_max',
-          total_n, dice_n, signOfInequality, diff, dice_cnt, dice_max, n1, n_max)
-
-    return "" unless /((\+|\-)?[\d]+)[)]?$/ =~ total_n.to_s
-
-    total_n = Regexp.last_match(1).to_i
-    diff = diff.to_i
-
-    check_paramNew = [total_n, dice_n, signOfInequality, diff, dice_cnt, dice_max, n1, n_max]
-
-    text = getSuccessText(*check_paramNew)
-    text ||= ""
-
-    if text.empty?
-      if signOfInequality != ""
-        debug('どれでもないけど判定するとき')
-        return check_nDx(*check_param)
-      end
-    end
-
-    return text
-  end
-
-  def getSuccessText(*check_param)
-    debug('getSuccessText begin')
-
-    total_n, dice_n, signOfInequality, diff, dice_cnt, dice_max, n1, n_max = *check_param
-
-    debug("dice_max, dice_cnt", dice_max, dice_cnt)
-
-    if (dice_max == 100) && (dice_cnt == 1)
-      debug('1D100判定')
-      return @diceBot.check_1D100(*check_param)
-    end
-
-    if (dice_max == 20) && (dice_cnt == 1)
-      debug('1d20判定')
-      return @diceBot.check_1D20(*check_param)
-    end
-
-    if dice_max == 10
-      debug('d10ベース判定')
-      return @diceBot.check_nD10(*check_param)
-    end
-
-    if dice_max == 6
-      if dice_cnt == 2
-        debug('2d6判定')
-        result = @diceBot.check_2D6(*check_param)
-        return result unless result.empty?
-      end
-
-      debug('xD6判定')
-      return @diceBot.check_nD6(*check_param)
-    end
-
-    return ""
-  end
-
-  def check_nDx(total_n, _dice_n, signOfInequality, diff, _dice_cnt, _dice_max, _n1, _n_max) # ゲーム別成功度判定(ダイスごちゃ混ぜ系)
-    debug('check_nDx begin diff', diff)
-    success = check_hit(total_n, signOfInequality, diff)
-    debug('check_nDx success', success)
-
-    if success >= 1
-      return " ＞ 成功"
-    end
-
-    return " ＞ 失敗"
-  end
-
   ###########################################################################
   # **                              出力関連
   ###########################################################################
@@ -1503,14 +1486,13 @@ class BCDice
   def parren_killer(string)
     debug("parren_killer input", string)
 
-    while /^(.*?)\[(\d+[Dd]\d+)\](.*)/ =~ string
-      str_before = ""
-      str_after = ""
-      dice_cmd = Regexp.last_match(2)
-      str_before = Regexp.last_match(1) if Regexp.last_match(1)
-      str_after = Regexp.last_match(3) if Regexp.last_match(3)
-      rolled, dmy = rollDiceAddingUp(dice_cmd)
-      string = "#{str_before}#{rolled}#{str_after}"
+    string = string.gsub(/\[\d+D\d+\]/i) do |matched|
+      # Remove '[' and ']'
+      command = matched[1..-2].upcase
+      times, sides = command.split("D").map(&:to_i)
+      rolled, = roll(times, sides)
+
+      rolled
     end
 
     string = changeRangeTextToNumberText(string)
@@ -1524,16 +1506,11 @@ class BCDice
     string = @diceBot.changeText(string)
     debug("diceBot.changeText(string) end", string)
 
-    string = string.gsub(/([\d]+[dD])([^\d\w]|$)/) { "#{Regexp.last_match(1)}6#{Regexp.last_match(2)}" }
+    string = string.gsub(/([\d]+[dD])([^\w]|$)/) { "#{Regexp.last_match(1)}6#{Regexp.last_match(2)}" }
 
     debug("parren_killer output", string)
 
     return string
-  end
-
-  def rollDiceAddingUp(*arg)
-    dice = AddDice.new(self, @diceBot)
-    dice.rollDiceAddingUp(*arg)
   end
 
   # [1...4]D[2...7] -> 2D7 のように[n...m]をランダムな数値へ変換
@@ -1584,7 +1561,7 @@ class BCDice
     setDiceBot(diceBot)
     diceBot.postSet
 
-    message = "Game設定を#{diceBot.gameName}に設定しました"
+    message = "Game設定を#{diceBot.name}に設定しました"
     debug('setGameByTitle message', message)
 
     return message

@@ -1,45 +1,21 @@
 # -*- coding: utf-8 -*-
+# frozen_string_literal: true
 
 # どどんとふ用 GURPS-FW オリジナルダイスボット
 # Last update 2013/11/07
 
 class GurpsFW < DiceBot
-  setPrefixes([
-    'CRT',
-    'HCRT',
-    'FMB',
-    'MFMB',
-    'HIT',
-    'FEAR((\+)?\d*)',
-    'REACT((\+|\-)?\d*)',
-    'TRAP(E|N|H|L)',
-    'TRS((E|N|H|L)\d+)((\+|\-)?\d*)',
-    'RAND(E|N|H|L)[1-6]?',
-    'RENC(E|N|H|L)[1-6]?',
-    'AREA',
-    'DROP(N)?((\+)?\d)?',
-    'HST',
-    'KHST',
-    'RANDOP',
-    'LOT(N|P)'
-  ])
+  # ゲームシステムの識別子
+  ID = 'GurpsFW'
 
-  def initialize
-    super
-    @sendMode = 2
-    @d66Type = 1
-  end
+  # ゲームシステム名
+  NAME = 'ガープスフィルトウィズ'
 
-  def gameName
-    'ガープスフィルトウィズ'
-  end
+  # ゲームシステム名の読みがな
+  SORT_KEY = 'かあふすふいるとういす'
 
-  def gameType
-    "GurpsFW"
-  end
-
-  def getHelpMessage
-    return <<INFO_MESSAGE_TEXT
+  # ダイスボットの使い方
+  HELP_MESSAGE = <<INFO_MESSAGE_TEXT
 --GURPS汎用コマンド----------
 ・判定においてクリティカル・ファンブルの自動判別、成功度の自動計算。(3d6<=目標値)
  ・祝福等のダイス目にかかる修正は「3d6-1<=目標値」といった記述で計算されます。
@@ -74,6 +50,31 @@ class GurpsFW < DiceBot
 ・地形決定表(AREA)
 ・迷宮追加オプション表(RANDOP)
 INFO_MESSAGE_TEXT
+
+  setPrefixes([
+    'CRT',
+    'HCRT',
+    'FMB',
+    'MFMB',
+    'HIT',
+    'FEAR((\+)?\d*)',
+    'REACT((\+|\-)?\d*)',
+    'TRAP(E|N|H|L)',
+    'TRS((E|N|H|L)\d+)((\+|\-)?\d*)',
+    'RAND(E|N|H|L)[1-6]?',
+    'RENC(E|N|H|L)[1-6]?',
+    'AREA',
+    'DROP(N)?((\+)?\d)?',
+    'HST',
+    'KHST',
+    'RANDOP',
+    'LOT(N|P)'
+  ])
+
+  def initialize
+    super
+    @sendMode = 2
+    @d66Type = 1
   end
 
   def dice_command(string, name)
@@ -93,42 +94,39 @@ INFO_MESSAGE_TEXT
     return output_msg, secret_flg
   end
 
-  def check_nD6(total_n, dice_n, signOfInequality, diff, dice_cnt, _dice_max, _n1, _n_max) # ゲーム別成功度判定(nD6)
-    if (dice_cnt == 3) && (signOfInequality == "<=")
+  def check_nD6(total, dice_total, dice_list, cmp_op, target)
+    return "" unless dice_list.size == 3 && cmp_op == :<=
 
-      success = diff - total_n; # 成功度
-      crt_string = " ＞ クリティカル(成功度：#{success})"
-      fmb_string = " ＞ ファンブル(失敗度：#{success})"
-      fail_string = " ＞ 自動失敗(失敗度：#{success})"
+    success = target - total # 成功度
+    crt_string  = " ＞ クリティカル(成功度：#{success})"
+    fmb_string  = " ＞ ファンブル(失敗度：#{success})"
+    fail_string = " ＞ 自動失敗(失敗度：#{success})"
 
-      # クリティカル
-      if (dice_n <= 6) && (diff >= 16)
-        return crt_string
-      elsif (dice_n <= 5) && (diff >= 15)
-        return crt_string
-      elsif dice_n <= 4
-        return crt_string
-      end
-      # ファンブル
-      if diff - dice_n <= -10
-        return fmb_string
-      elsif (dice_n >= 17) && (diff <= 15)
-        return fmb_string
-      elsif dice_n >= 18
-        return fmb_string
-      elsif dice_n >= 17
-        return fail_string
-      end
-
-      if total_n <= diff
-        return " ＞ 成功(成功度：#{success})"
-      else
-        return " ＞ 失敗(失敗度：#{success})"
-      end
-
+    # クリティカル
+    if (dice_total <= 6) && (target >= 16)
+      return crt_string
+    elsif (dice_total <= 5) && (target >= 15)
+      return crt_string
+    elsif dice_total <= 4
+      return crt_string
     end
 
-    return ''
+    # ファンブル
+    if (target - dice_total) <= -10
+      return fmb_string
+    elsif (dice_total >= 17) && (target <= 15)
+      return fmb_string
+    elsif dice_total >= 18
+      return fmb_string
+    elsif dice_total >= 17
+      return fail_string
+    end
+
+    if total <= target
+      return " ＞ 成功(成功度：#{success})"
+    else
+      return " ＞ 失敗(失敗度：#{success})"
+    end
   end
 
   def getCommandResult(string, nick_e)
@@ -292,7 +290,7 @@ INFO_MESSAGE_TEXT
         '昏睡状態。1時間ごとに生命力判定を行い、成功すると目覚める。目覚めてから6時間はあらゆる判定に-2の修正。さらに強い恐怖症、ないし-30CPぶんの精神的特徴を植え付けられる。知力が1点永遠に低下する。あわせて精神系の技能、呪文、超能力のレベルも低下する。',
       ]
 
-      dice, dummy = roll(3, 6)
+      dice, = roll(3, 6)
       number = dice + modify
       if number > 40
         num = 36
@@ -305,7 +303,7 @@ INFO_MESSAGE_TEXT
       modify = Regexp.last_match(1).to_i
 
       tableName = "反応表"
-      dice, dummy = roll(3, 6)
+      dice, = roll(3, 6)
       number = dice + modify
 
       if number < 1
@@ -371,9 +369,9 @@ INFO_MESSAGE_TEXT
       if !Regexp.last_match(2).nil?
         dice1 = Regexp.last_match(2).to_i
       else
-        dice1, dummy = roll(1, 6)
+        dice1, = roll(1, 6)
       end
-      dice2, dummy = roll(1, 6)
+      dice2, = roll(1, 6)
       area, dif, table = getRandomEvent(dice1, dice2, diff)
       result, dice3 = get_table_by_1d6(table)
       number = "#{dice1}#{dice2}#{dice3}"
@@ -385,7 +383,7 @@ INFO_MESSAGE_TEXT
       if !Regexp.last_match(2).nil?
         dice1 = Regexp.last_match(2).to_i
       else
-        dice1, dummy = roll(1, 6)
+        dice1, = roll(1, 6)
       end
       dice2 = 4
       area, dif, table = getRandomEvent(dice1, dice2, diff)
@@ -452,7 +450,7 @@ INFO_MESSAGE_TEXT
         modify = Regexp.last_match(4).to_i
       end
 
-      dice, dummy = roll(3, 6)
+      dice, = roll(3, 6)
       number = dice - modify
 
       if number <= 3

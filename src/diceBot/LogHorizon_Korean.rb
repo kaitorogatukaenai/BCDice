@@ -1,23 +1,18 @@
 # -*- coding: utf-8 -*-
+# frozen_string_literal: true
 
 class LogHorizon_Korean < DiceBot
-  setPrefixes(['\d+LH.*', 'PC.*', 'EC.*', 'GC.*', 'CC.*', 'CTR.*', 'MTR.*', 'ITR.*', 'HTR.*', 'GTR.*', 'PTAG', 'KOYU', 'MGR.', 'HLOC', 'PCNM', 'IAT.*', 'TIAS', 'ABDC', 'MII.*', 'ESCT.*', 'CSCT.*', 'ESTL.*'])
+  # ゲームシステムの識別子
+  ID = 'LogHorizon:Korean'
 
-  def initialize
-    super
-    @d66Type = 1
-  end
+  # ゲームシステム名
+  NAME = '로그 호라이즌'
 
-  def gameName
-    '로그 호라이즌'
-  end
+  # ゲームシステム名の読みがな
+  SORT_KEY = '国際化:Korean:로그 호라이즌'
 
-  def gameType
-    "LogHorizon:Korean"
-  end
-
-  def getHelpMessage
-    return <<MESSAGETEXT
+  # ダイスボットの使い方
+  HELP_MESSAGE = <<MESSAGETEXT
 ・판정(xLH±y>=z)
 　xD6의 판정.크리티컬, 펌블의 자동 판정을 실시합니다.
 　x：x로 굴릴 주사위의 수를 입력합니다.
@@ -60,6 +55,12 @@ class LogHorizon_Korean < DiceBot
 ・역자의 말 : 「실록・칠면체공방 좌담회(여름의 장)」은 한국에서 발매하지 않습니다. 참고해주세요.
 ・이니티움님, 광황님, CoC방 여러분 감사합니다. by호흡도의식하면귀찮아
 MESSAGETEXT
+
+  setPrefixes(['\d+LH.*', 'PC.*', 'EC.*', 'GC.*', 'CC.*', 'CTR.*', 'MTR.*', 'ITR.*', 'HTR.*', 'GTR.*', 'PTAG', 'KOYU', 'MGR.', 'HLOC', 'PCNM', 'IAT.*', 'TIAS', 'ABDC', 'MII.*', 'ESCT.*', 'CSCT.*', 'ESTL.*'])
+
+  def initialize
+    super
+    @d66Type = 1
   end
 
   def rollDiceCommand(command)
@@ -1380,8 +1381,8 @@ MESSAGETEXT
              "고블린의 야영지: 여러분은 야영 중인 고블린들을 물리쳤다! 전원 50G를 손에 넣는다. 목표치 14의 [지각판정]을 한다(한사람당 1회). 성공한 사람은 「고브 영웅상[환전] (60G)」을 하나 입수한다.",
              "줄곧 이어지는 생활: 산비탈의 한 면 전체에 밭들이 계단처럼 펼쳐져 있다. 이 정도의 논밭을 일구는 데 도대체 얼마나 많은 시간이 들었을까? 근처에는 틀림없이 〈대지인〉의 마을이 있을 것이다."]
 
-    d1, dummy = roll(1, 6)
-    d2, dummy = roll(1, 6)
+    d1, = roll(1, 6)
+    d2, = roll(1, 6)
     value = (d1.to_i + d2.to_i - 2 + (cr - 1) * 5)
 
     result = table[value]

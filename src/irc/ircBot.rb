@@ -117,7 +117,7 @@ class IrcClient < Net::IRC::Client
     arg = getArg(event)
     tnick = ""
     if /->/ =~ arg
-      arg, tnick, *dummy = arg.split(/->/)
+      arg, tnick, = arg.split(/->/)
     end
 
     debug("nick_e, arg, tnick", nick_e, arg, tnick)
@@ -201,7 +201,7 @@ class IrcClient < Net::IRC::Client
     @nickIndex += 1
     @log.debug("@nickIndex:#{@nickIndex}")
 
-    nickIndexText = format("%d", @nickIndex)
+    nickIndexText = @nickIndex.to_s
     @log.debug("nickIndexText:#{nickIndexText}")
 
     newNick = nick + nickIndexText

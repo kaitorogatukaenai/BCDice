@@ -1,31 +1,21 @@
 # -*- coding: utf-8 -*-
+# frozen_string_literal: true
 
 require 'diceBot/DiceBot'
+require 'utils/table'
 
 class NinjaSlayer < DiceBot
-  # ダイスボットで使用するコマンドを配列で列挙する
-  setPrefixes([
-    'NJ\d+.*',
-    'EV\d+.*',
-    'AT\d+.*'
-  ])
+  # ゲームシステムの識別子
+  ID = 'NinjaSlayer'
 
-  def initialize
-    super
+  # ゲームシステム名
+  NAME = 'ニンジャスレイヤーTRPG'
 
-    @defaultSuccessTarget = ">=4"
-  end
+  # ゲームシステム名の読みがな
+  SORT_KEY = 'にんしやすれいやあRPG'
 
-  def gameName
-    'ニンジャスレイヤーTRPG'
-  end
-
-  def gameType
-    "NinjaSlayer"
-  end
-
-  def getHelpMessage
-    return <<MESSAGETEXT
+  # ダイスボットの使い方
+  HELP_MESSAGE = <<MESSAGETEXT
 ・通常判定　NJ
 　NJx[y] or NJx@y or NJx
 　x=判定ダイス y=難易度 省略時はNORMAL(4)
@@ -39,10 +29,29 @@ class NinjaSlayer < DiceBot
 　ATx[y] or ATx@y or ATx
 　x=判定ダイス y=難易度 省略時はNORMAL(4) サツバツ！発生時には表示
 　例:AT6[H] 難易度HARD,判定ダイス5で近接攻撃の判定
+・サツバツ判定　SB
+・電子戦　EL
+　ELx[y] or ELx@y or ELx
+　x=判定ダイス y=難易度 省略時はNORMAL(4)
+　例:EL6[H] 難易度HARD,判定ダイス5で電子戦の判定
 
 ・難易度
 　KIDS=K,EASY=E,NORMAL=N,HARD=H,ULTRA HARD=UH 数字にも対応
 MESSAGETEXT
+
+  # ダイスボットで使用するコマンドを配列で列挙する
+  setPrefixes([
+    'NJ\d+.*',
+    'EV\d+.*',
+    'AT\d+.*',
+    'EL\d+.*',
+    'SB'
+  ])
+
+  def initialize
+    super
+
+    @defaultSuccessTarget = ">=4"
   end
 
   # 難易度の値の正規表現
@@ -51,11 +60,13 @@ MESSAGETEXT
   DIFFICULTY_RE = /\[(#{DIFFICULTY_VALUE_RE})\]|@(#{DIFFICULTY_VALUE_RE})/io.freeze
 
   # 通常判定の正規表現
-  NJ_RE = /\ANJ(\d+)#{DIFFICULTY_RE}?\z/io.freeze
+  NJ_RE = /\A(S)?NJ(\d+)#{DIFFICULTY_RE}?\z/io.freeze
   # 回避判定の正規表現
   EV_RE = %r{\AEV(\d+)#{DIFFICULTY_RE}?(?:/(\d+))?\z}io.freeze
   # 近接攻撃の正規表現
   AT_RE = /\AAT(\d+)#{DIFFICULTY_RE}?\z/io.freeze
+  # 電子戦の正規表現
+  EL_RE = /\AEL(\d+)#{DIFFICULTY_RE}?\z/io.freeze
 
   # バラバラロール結果の "(" の前までの先頭部分
   B_ROLL_RESULT_HEAD_RE = /\A[^(]+/.freeze
@@ -64,6 +75,8 @@ MESSAGETEXT
   EV = Struct.new(:num, :difficulty, :targetValue)
   # 近接攻撃のノード
   AT = Struct.new(:num, :difficulty)
+  # 電子戦のノード
+  EL = Struct.new(:num, :difficulty)
 
   # 難易度の文字表現から整数値への対応
   DIFFICULTY_SYMBOL_TO_INTEGER = {
@@ -78,17 +91,24 @@ MESSAGETEXT
     m = NJ_RE.match(str)
     return str unless m
 
-    return bRollCommand(m[1], integerValueOfDifficulty(m[2] || m[3]))
+    b_roll = bRollCommand(m[2], integerValueOfDifficulty(m[3] || m[4]))
+    return "#{m[1]}#{b_roll}"
   end
 
   def rollDiceCommand(command)
     debug('rollDiceCommand begin string', command)
+
+    if (table = TABLES[command])
+      return table.roll(bcdice)
+    end
 
     case node = parse(command)
     when EV
       return executeEV(node)
     when AT
       return executeAT(node)
+    when EL
+      return executeEL(node)
     else
       return nil
     end
@@ -98,13 +118,15 @@ MESSAGETEXT
 
   # 構文解析する
   # @param [String] command コマンド文字列
-  # @return [EV, AT, nil]
+  # @return [EV, AT, EL, nil]
   def parse(command)
-    case
-    when m = EV_RE.match(command)
-      return parseEV(m)
-    when m = AT_RE.match(command)
-      return parseAT(m)
+    case command
+    when EV_RE
+      return parseEV(Regexp.last_match)
+    when AT_RE
+      return parseAT(Regexp.last_match)
+    when EL_RE
+      return parseEL(Regexp.last_match)
     else
       return nil
     end
@@ -129,6 +151,16 @@ MESSAGETEXT
     difficulty = integerValueOfDifficulty(m[2] || m[3])
 
     return AT.new(num, difficulty)
+  end
+
+  # 正規表現のマッチ情報から電子戦ノードを作る
+  # @param [MatchData] m 正規表現のマッチ情報
+  # @return [EL]
+  def parseEL(m)
+    num = m[1].to_i
+    difficulty = integerValueOfDifficulty(m[2] || m[3])
+
+    return EL.new(num, difficulty)
   end
 
   # 回避判定を行う
@@ -168,6 +200,25 @@ MESSAGETEXT
     return numOfMaxValues >= 2 ? "#{rollResult} ＞ サツバツ!!" : rollResult
   end
 
+  # 電子戦を行う
+  # @param [EL] el 電子戦ノード
+  # @return [String] 電子戦結果
+  def executeEL(el)
+    command = bRollCommand(el.num, el.difficulty)
+    rollResult = bcdice.bdice(command).sub(B_ROLL_RESULT_HEAD_RE, '')
+
+    # バラバラロールの出目を取得する
+    # TODO: バラバラロールの結果として、出目を配列で取得できるようにする
+    m = /＞ (\d+(?:,\d+)*)/.match(rollResult)
+    values = m[1].split(',').map(&:to_i)
+
+    numOfMaxValues = values.select { |v| v == 6 }.length
+
+    sumOfTrueValues = values.select { |v| v >= el.difficulty }.length
+
+    return numOfMaxValues >= 1 ? "#{rollResult} + #{numOfMaxValues} ＞ #{sumOfTrueValues + numOfMaxValues}" : rollResult
+  end
+
   # 難易度の整数値を返す
   # @param [String, nil] s 難易度表記
   # @return [Integer] 難易度の整数値
@@ -190,4 +241,31 @@ MESSAGETEXT
   def bRollCommand(num, difficulty)
     "#{num}B6>=#{difficulty}"
   end
+
+  # サツバツ表
+  SATSUBATSU_TABLE = [
+    '「死ねーッ！」腹部に強烈な一撃！　敵はくの字に折れ曲がり、ワイヤーアクションめいて吹っ飛んだ！：本来のダメージ+1ダメージを与える。敵は後方の壁または障害物に向かって、何マスでもまっすぐ弾き飛ばされる（他のキャラのいるマスは通過する）。壁または障害物に接触した時点で、敵はさらに1ダメージを受ける。敵はこの激突ダメージに対して改めて『回避判定』を行っても良い。',
+    '「イヤーッ！」頭部への痛烈なカラテ！　眼球破壊もしくは激しい脳震盪が敵を襲う！：本来のダメージを与える。さらに敵の【ニューロン】と【ワザマエ】がそれぞれ1ずつ減少する（これによる最低値は1）。残虐ボーナスにより【万札】がD3発生。この攻撃を【カルマ：善】のキャラに対して行ってしまった場合、【DKK】がD3上昇する。',
+    '「苦しみ抜いて死ぬがいい」急所を情け容赦なく破壊！：本来のダメージ+1ダメージを与える。耐え難い苦痛により、敵は【精神力】が-2され、【ニューロン】が1減少する（これによる最低値は1）。残虐ボーナスにより【万札】がD3発生。この攻撃を【カルマ：善】のキャラに対して行ってしまった場合、【DKK】がD3上昇する。',
+    '「逃げられるものなら逃げてみよ」敵の脚を粉砕！：本来のダメージを与える。さらに敵の【脚力】がD3減少する（最低値は1）。残虐ボーナスにより【万札】がD3発生。この攻撃を【カルマ：善】のキャラに対して行ってしまった場合、【DKK】がD3上昇する。',
+    '「これで手も足も出まい！」敵の両腕を切り飛ばした！　鮮血がスプリンクラーめいて噴き出す！：本来のダメージ+1ダメージを与える。さらに敵の【ワザマエ】と【カラテ】がそれぞれ2減少する（最低値は1）。残虐ボーナスにより【万札】がD3発生。この攻撃を【カルマ：善】のキャラに対して行ってしまった場合、【DKK】がD3上昇する。',
+    '「イイイヤアアアアーーーーッ！」ヤリめいたチョップが敵の胸を貫通！　さらに心臓を掴み取り、握りつぶした！　ナムアミダブツ！：敵は残り【体力】に関係なく即死する。残虐ボーナスにより【万札】がD6発生。この攻撃を【カルマ：善】のキャラに対して行ってしまった場合、【DKK】がD6上昇する。'
+  ].freeze
+
+  # 表の定義
+  TABLES = {
+    'SB' => Table.new(
+      'サツバツ表',
+      '1D6',
+      SATSUBATSU_TABLE
+    )
+  }.freeze
+
+  # ダイスボットで使用するコマンドを配列で列挙する
+  setPrefixes([
+    'NJ\d+.*',
+    'EV\d+.*',
+    'AT\d+.*',
+    'EL\d+.*'
+  ] + TABLES.keys)
 end

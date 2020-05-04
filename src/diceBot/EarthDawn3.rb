@@ -1,26 +1,20 @@
 # -*- coding: utf-8 -*-
+# frozen_string_literal: true
 
 require 'diceBot/EarthDawn'
 
 class EarthDawn3 < EarthDawn
-  setPrefixes(['\d+e.*'])
+  # ゲームシステムの識別子
+  ID = 'EarthDawn3'
 
-  def initialize
-    super
-    @sendMode = 2
-    @sortType = 1
-  end
+  # ゲームシステム名
+  NAME = 'アースドーン3版'
 
-  def gameName
-    'アースドーン3版'
-  end
+  # ゲームシステム名の読みがな
+  SORT_KEY = 'ああすとおん3'
 
-  def gameType
-    "EarthDawn3"
-  end
-
-  def getHelpMessage
-    return <<INFO_MESSAGE_TEXT
+  # ダイスボットの使い方
+  HELP_MESSAGE = <<INFO_MESSAGE_TEXT
 ステップダイス　(xEn+k)
 ステップx、目標値n(省略可能）、カルマダイスk(D2～D20)でステップダイスをロールします。
 振り足しも自動。
@@ -28,6 +22,13 @@ class EarthDawn3 < EarthDawn
 　　ステップ10、目標値8：10E8
 　　ステップ12、目標値8、カルマダイスD12：10E8+1D6
 INFO_MESSAGE_TEXT
+
+  setPrefixes(['\d+e.*'])
+
+  def initialize
+    super
+    @sendMode = 2
+    @sortType = 1
   end
 
   def rollDiceCommand(command)
@@ -244,7 +245,7 @@ INFO_MESSAGE_TEXT
     debug('rollStep @string', @string)
 
     diceCount.times do |i|
-      dice_now, dummy = roll(1, diceType)
+      dice_now, = roll(1, diceType)
 
       if dice_now != 1
         @isFailed = false
@@ -253,7 +254,7 @@ INFO_MESSAGE_TEXT
       dice_in = dice_now
 
       while dice_now == diceType
-        dice_now, dummy = roll(1, diceType)
+        dice_now, = roll(1, diceType)
 
         dice_in += dice_now
       end

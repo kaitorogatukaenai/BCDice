@@ -1,29 +1,30 @@
 # -*- coding: utf-8 -*-
+# frozen_string_literal: true
 
 class EarthDawn < DiceBot
+  # ゲームシステムの識別子
+  ID = 'EarthDawn'
+
+  # ゲームシステム名
+  NAME = 'アースドーン'
+
+  # ゲームシステム名の読みがな
+  SORT_KEY = 'ああすとおん'
+
+  # ダイスボットの使い方
+  HELP_MESSAGE = <<INFO_MESSAGE_TEXT
+ステップダイス　(xEn+k)
+ステップx、目標値n(省略可能）、カルマダイスk(D2-D20)でステップダイスをロールします。
+振り足しも自動。
+例）9E　10E8　10E+D12
+INFO_MESSAGE_TEXT
+
   setPrefixes(['\d+e.*'])
 
   def initialize
     super
     @sendMode = 2
     @sortType = 1
-  end
-
-  def gameName
-    'アースドーン'
-  end
-
-  def gameType
-    "EarthDawn"
-  end
-
-  def getHelpMessage
-    return <<INFO_MESSAGE_TEXT
-ステップダイス　(xEn+k)
-ステップx、目標値n(省略可能）、カルマダイスk(D2-D20)でステップダイスをロールします。
-振り足しも自動。
-例）9E　10E8　10E+D12
-INFO_MESSAGE_TEXT
   end
 
   def rollDiceCommand(command)
@@ -42,9 +43,8 @@ INFO_MESSAGE_TEXT
 
     stepTotal = 0
     @isFailed = true
-    step2 = 0
 
-    step  = Regexp.last_match(1).to_i # ステップ
+    step = Regexp.last_match(1).to_i # ステップ
     targetNumber = 0 # 目標値
     hasKarmaDice = false # カルマダイスの有無
     karmaDiceCount = 0 # カルマダイスの個数又は修正
@@ -52,7 +52,6 @@ INFO_MESSAGE_TEXT
 
     # 空値があった時の為のばんぺいくんRX
     if step > 40
-      step2 = step
       step = 40
     end
 
@@ -196,7 +195,7 @@ INFO_MESSAGE_TEXT
     debug('rollStep @string', @string)
 
     diceCount.times do |i|
-      dice_now, dummy = roll(1, diceType)
+      dice_now, = roll(1, diceType)
 
       if dice_now != 1
         @isFailed = false
@@ -205,7 +204,7 @@ INFO_MESSAGE_TEXT
       dice_in = dice_now
 
       while dice_now == diceType
-        dice_now, dummy = roll(1, diceType)
+        dice_now, = roll(1, diceType)
 
         dice_in += dice_now
       end
